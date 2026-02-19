@@ -35,6 +35,23 @@
     <style>
         body { font-family: 'Montserrat', sans-serif; }
         .header-text { text-transform: uppercase; letter-spacing: 0.15em; font-weight: 700; }
+        
+        /* Google Maps Autocomplete Dropdown Visibility Fix */
+        .pac-container {
+            z-index: 9999 !important;
+            border-radius: 8px;
+            margin-top: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border: 1px solid #e2e8f0;
+            font-family: 'Montserrat', sans-serif;
+        }
+        .pac-item {
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+        .pac-item:hover {
+            background-color: #f8fafc;
+        }
     </style>
 <script type="importmap">
 {

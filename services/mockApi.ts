@@ -101,3 +101,12 @@ Notes: ${data.notes || 'None'}
     googleEventId: mockGoogleEventId
   };
 };
+
+export const calculateNetToSeller = async (address: string) => {
+  await delay(800);
+  console.log(`Calculating net to seller for: ${address}`);
+  return {
+    estimatedNet: Math.floor(Math.random() * 500000) + 100000,
+    timestamp: new Date().toISOString()
+  };
+};

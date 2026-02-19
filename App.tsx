@@ -6,9 +6,8 @@ import AddressAutocomplete, { StructuredAddress } from './components/AddressAuto
 import DebugEnvPage from './components/DebugEnvPage';
 import { Persona, AppointmentType, TimeSlot } from './types';
 import { APPOINTMENT_TYPES } from './constants';
-import { fetchAvailability, createBooking } from './services/mockApi';
+import { fetchAvailability, createBooking, calculateNetToSeller } from './services/mockApi';
 import { getPublicConfig } from './lib/publicEnv';
-import { loadGoogleMapsPlaces } from './lib/googleMapsLoader';
 
 /**
  * Root component to manage Google Maps lifecycle exactly once.
@@ -16,35 +15,40 @@ import { loadGoogleMapsPlaces } from './lib/googleMapsLoader';
 const GoogleMapsScript: React.FC = () => {
   useEffect(() => {
     const initMaps = async () => {
+      // 1. Check if already loaded to prevent "Already Presented" error
+      if ((window as any).google?.maps) {
+        console.log("Google Maps already loaded.");
+        return;
+      }
+
       try {
-        // 1. Get key from public env (direct process.env access)
         const config = await getPublicConfig();
         const key = config.googleMapsKey;
         
         if (!key || key.length < 10) {
-          console.warn("Google Maps API key not found in process.env. Autocomplete will fallback to manual entry.");
+          console.warn("Google Maps API key missing.");
           return;
         }
 
-        // 2. Set on window for singleton loaders to access
-        (window as any).__GOOGLE_MAPS_KEY = key;
-
-        // 3. Inject the Google Maps script tag exactly once
         const scriptId = "google-maps-js";
         if (!document.getElementById(scriptId)) {
+          // Set global auth failure hook before script loads
+          (window as any).gm_authFailure = () => {
+            console.error("Google Maps Authentication Failure detected.");
+            window.dispatchEvent(new CustomEvent('google-maps-auth-filter', { 
+              detail: { message: "RefererNotAllowedMapError: Please authorize this URL in Google Cloud Console." } 
+            }));
+          };
+
           const script = document.createElement("script");
           script.id = scriptId;
           script.async = true;
           script.defer = true;
           script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places&v=weekly`;
-          script.onerror = () => console.error("Google Maps script network error");
           document.head.appendChild(script);
         }
-
-        // 4. Prime the singleton loader
-        await loadGoogleMapsPlaces();
       } catch (err) {
-        console.error("Maps Root Init Failure:", err);
+        console.error("Maps Init Failure:", err);
       }
     };
 
@@ -226,7 +230,13 @@ const App: React.FC = () => {
               <AddressAutocomplete 
                 value={formData.propertyAddress?.formattedAddress || formData.manualPropertyAddress}
                 onValueChange={(val) => setFormData(prev => ({...prev, manualPropertyAddress: val}))}
-                onSelect={(address) => setFormData(prev => ({...prev, propertyAddress: address}))}
+                onSelect={(address) => {
+                  setFormData(prev => ({...prev, propertyAddress: address}));
+                  calculateNetToSeller(address.formattedAddress).then(res => {
+                    console.log("Net to Seller Result:", res);
+                    // In a real app, we'd store this in state and display it
+                  });
+                }}
               />
             </div>
           )}

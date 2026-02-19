@@ -1,6 +1,5 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import { loadGoogleMapsPlaces, getMapsStatus } from '../lib/googleMapsLoader';
 
 export interface StructuredAddress {
   formattedAddress: string;
@@ -23,125 +22,94 @@ interface Props {
   disabled?: boolean;
 }
 
+/**
+ * Strict Google Maps Autocomplete Component
+ * Uses Legacy JS API for reliable input binding.
+ */
 const AddressAutocomplete: React.FC<Props> = ({ value, onValueChange, onSelect, disabled }) => {
   const inputRef = useRef<HTMLInputElement>(null);
-  const acRef = useRef<any>(null);
-  const initRef = useRef(false);
-  const mountIdRef = useRef(Math.random().toString(36).substring(7));
-  
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [showDebug, setShowDebug] = useState<boolean>(false);
-
-  // Stable refs for callbacks
-  const onSelectRef = useRef(onSelect);
-  const onValueChangeRef = useRef(onValueChange);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    onSelectRef.current = onSelect;
-    onValueChangeRef.current = onValueChange;
-  }, [onSelect, onValueChange]);
-
-  useEffect(() => {
-    console.log(`AddressAutocomplete mounted [${mountIdRef.current}]`);
-    
-    if (initRef.current) return;
-    initRef.current = true;
-
-    const initialize = async () => {
-      try {
-        await loadGoogleMapsPlaces();
-        
-        if (!(window as any).google?.maps?.places?.Autocomplete) {
-          throw new Error("Places library missing after script load");
-        }
-
-        if (!inputRef.current || acRef.current) return;
-
-        acRef.current = new (window as any).google.maps.places.Autocomplete(inputRef.current, {
-          types: ['address'],
-          componentRestrictions: { country: 'us' },
-          fields: ['address_components', 'formatted_address', 'geometry', 'place_id'],
-        });
-
-        acRef.current.addListener('place_changed', () => {
-          const place = acRef.current?.getPlace();
-          if (!place || !place.address_components) return;
-
-          const address: StructuredAddress = {
-            formattedAddress: place.formatted_address || '',
-            street1: '', street2: '', city: '', state: '', postalCode: '',
-            county: '', country: '', placeId: place.place_id || '',
-            lat: place.geometry?.location?.lat() || 0,
-            lng: place.geometry?.location?.lng() || 0,
-          };
-
-          let streetNumber = '', route = '';
-          place.address_components.forEach((component: any) => {
-            const types = component.types;
-            if (types.includes('street_number')) streetNumber = component.long_name;
-            if (types.includes('route')) route = component.long_name;
-            if (types.includes('subpremise')) address.street2 = component.long_name;
-            if (types.includes('locality')) address.city = component.long_name;
-            if (types.includes('administrative_area_level_1')) address.state = component.short_name;
-            if (types.includes('postal_code')) address.postalCode = component.long_name;
-            if (types.includes('administrative_area_level_2')) address.county = component.long_name;
-            if (types.includes('country')) address.country = component.short_name;
-          });
-
-          address.street1 = `${streetNumber} ${route}`.trim();
-          onValueChangeRef.current(address.formattedAddress);
-          onSelectRef.current(address);
-        });
-
-        setStatus('ready');
-      } catch (err: any) {
-        console.error("AddressAutocomplete init error:", err);
-        setLocalError(err.message || "Failed to initialize Places");
-        setStatus('error');
-      }
+    const handleAuthError = (e: any) => {
+      setAuthError(e.detail.message);
     };
-
-    initialize();
-
-    return () => {
-      console.log(`AddressAutocomplete unmounted [${mountIdRef.current}]`);
-      if (acRef.current && (window as any).google?.maps?.event) {
-        (window as any).google.maps.event.clearInstanceListeners(acRef.current);
-      }
-    };
+    window.addEventListener('google-maps-auth-filter', handleAuthError);
+    return () => window.removeEventListener('google-maps-auth-filter', handleAuthError);
   }, []);
 
-  const { mapsStatus, lastError } = getMapsStatus();
+  useEffect(() => {
+    let checkInterval: any;
 
-  if (status === 'error' || mapsStatus === 'error') {
-    return (
-      <div className="space-y-2">
-        <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Property Address *</label>
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onValueChange(e.target.value)}
-          className="w-full border border-red-200 bg-red-50 rounded-lg p-2.5 text-sm focus:border-brand-blue outline-none transition-colors"
-          placeholder="Enter address manually..."
-          required
-        />
-        <div className="flex flex-col space-y-1">
-          <p className="text-[9px] text-red-500 font-medium">Autocomplete unavailable. Please enter full address manually.</p>
-          <button type="button" onClick={() => setShowDebug(!showDebug)} className="text-[9px] text-slate-400 underline text-left">
-            {showDebug ? 'Hide' : 'Show'} diagnostic info
-          </button>
-        </div>
-        {showDebug && (
-          <div className="bg-slate-900 text-slate-300 p-3 rounded-lg text-[9px] font-mono border border-slate-700">
-            <p><span className="text-slate-500">Mount ID:</span> {mountIdRef.current}</p>
-            <p><span className="text-slate-500">Maps Status:</span> {mapsStatus}</p>
-            <p className="text-red-400"><span className="text-slate-500">Error:</span> {lastError || localError}</p>
-          </div>
-        )}
-      </div>
-    );
-  }
+    const initAutocomplete = () => {
+      if (!inputRef.current) return;
+      if (!(window as any).google?.maps?.places?.Autocomplete) return;
+
+      // Prevent double initialization
+      if (autocompleteRef.current) return;
+
+      autocompleteRef.current = new google.maps.places.Autocomplete(inputRef.current, {
+        types: ['address'],
+        componentRestrictions: { country: 'us' },
+        fields: ['address_components', 'formatted_address', 'geometry', 'place_id'],
+      });
+
+      autocompleteRef.current.addListener('place_changed', () => {
+        const place = autocompleteRef.current?.getPlace();
+        if (!place || !place.address_components) return;
+
+        const address: StructuredAddress = {
+          formattedAddress: place.formatted_address || '',
+          street1: '', street2: '', city: '', state: '', postalCode: '',
+          county: '', country: '', placeId: place.place_id || '',
+          lat: place.geometry?.location?.lat() || 0,
+          lng: place.geometry?.location?.lng() || 0,
+        };
+
+        let streetNumber = '', route = '';
+        place.address_components.forEach((component: any) => {
+          const types = component.types;
+          if (types.includes('street_number')) streetNumber = component.long_name;
+          if (types.includes('route')) route = component.long_name;
+          if (types.includes('subpremise')) address.street2 = component.long_name;
+          if (types.includes('locality')) address.city = component.long_name;
+          if (types.includes('administrative_area_level_1')) address.state = component.short_name;
+          if (types.includes('postal_code')) address.postalCode = component.long_name;
+          if (types.includes('administrative_area_level_2')) address.county = component.long_name;
+          if (types.includes('country')) address.country = component.short_name;
+        });
+
+        address.street1 = `${streetNumber} ${route}`.trim();
+        
+        // Update parent state
+        onValueChange(address.formattedAddress);
+        onSelect(address);
+      });
+
+      setIsLoaded(true);
+      if (checkInterval) clearInterval(checkInterval);
+    };
+
+    // Poll for google availability if not immediately present
+    if ((window as any).google?.maps?.places) {
+      initAutocomplete();
+    } else {
+      checkInterval = setInterval(() => {
+        if ((window as any).google?.maps?.places) {
+          initAutocomplete();
+        }
+      }, 200);
+    }
+
+    return () => {
+      if (checkInterval) clearInterval(checkInterval);
+      if (autocompleteRef.current) {
+        google.maps.event.clearInstanceListeners(autocompleteRef.current);
+      }
+    };
+  }, [onSelect, onValueChange]);
 
   return (
     <div className="space-y-1.5">
@@ -152,18 +120,34 @@ const AddressAutocomplete: React.FC<Props> = ({ value, onValueChange, onSelect, 
           type="text"
           value={value}
           onChange={(e) => onValueChange(e.target.value)}
-          disabled={disabled || status === 'loading'}
-          className={`w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-brand-blue outline-none transition-colors ${status === 'loading' ? 'bg-slate-50 cursor-wait' : ''}`}
-          placeholder={status === 'loading' ? "Initializing Places..." : "Start typing property address..."}
+          disabled={disabled}
+          className={`w-full border rounded-lg p-2.5 text-sm outline-none transition-colors ${
+            authError 
+              ? 'border-red-300 bg-red-50 text-red-900' 
+              : 'border-slate-200 focus:border-brand-blue'
+          }`}
+          placeholder={authError ? "Autocomplete disabled (Auth Error)" : (isLoaded ? "Start typing property address..." : "Loading address service...")}
           required
         />
-        {status === 'loading' && (
+        {!isLoaded && !authError && (
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
             <div className="w-3 h-3 border-t-2 border-brand-blue rounded-full animate-spin"></div>
           </div>
         )}
       </div>
-      <p className="text-[10px] text-slate-400 italic">Start typing and pick a suggestion.</p>
+      {authError ? (
+        <div className="mt-2 p-3 bg-red-100 border border-red-200 rounded-lg">
+          <p className="text-[11px] text-red-700 font-bold mb-1">Google Maps Error: RefererNotAllowedMapError</p>
+          <p className="text-[10px] text-red-600 leading-relaxed">
+            Your API key is restricted. Please go to the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="underline font-bold">Google Cloud Console</a> and add this URL to your "Website restrictions":
+          </p>
+          <code className="block mt-2 p-1.5 bg-white border border-red-200 rounded text-[10px] font-mono break-all select-all">
+            https://ais-dev-zcygmvcm46koxzcpymqz3w-3111827956.us-west2.run.app/*
+          </code>
+        </div>
+      ) : (
+        <p className="text-[10px] text-slate-400 italic">Start typing and pick a suggestion.</p>
+      )}
     </div>
   );
 };
