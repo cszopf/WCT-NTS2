@@ -1,5 +1,5 @@
 {
-  "name": "World Class Title Scheduler",
-  "description": "Premium, branded scheduling experience for World Class Title, integrated with Google Calendar.",
-  "requestFramePermissions": []
+  "name": "World Class Title Net to Seller",
+  "description": "A premium, mobile-first net sheet tool for sellers and agents to estimate proceeds for Ohio properties.",
+  "requestFramePermissions": ["geolocation"]
 }
